@@ -70,28 +70,56 @@ function cleanItem(b) {
 }
 
 // ---------- Gemini ----------
-async function resolveModel() {
-  const r = await fetch(BASE + 'models?pageSize=200', { headers: { 'x-goog-api-key': KEY } });
+const BUSY = new Set([429, 500, 502, 503, 504]); // ปัญหาชั่วคราวฝั่ง Google: ลองใหม่/สลับรุ่นได้
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let modelsCache = { at: 0, names: [] };
+/** รายชื่อโมเดล flash ที่ใช้อ่านรูปได้ เรียงจากที่อยากใช้ที่สุด (รุ่น lite อยู่ท้ายสุด ใช้เป็นตัวสำรอง) */
+async function listModels() {
+  if (Date.now() - modelsCache.at < 3600000 && modelsCache.names.length) return modelsCache.names;
+  const r = await fetch(BASE + 'models?pageSize=200', { headers: { 'x-goog-api-key': KEY }, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error(`GEMINI ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 200)}`);
+  const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
   const names = ((await r.json()).models || [])
     .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
     .map((m) => m.name.replace(/^models\//, ''))
-    .filter((n) => /^gemini-/.test(n) && /flash/.test(n) && !/lite|image|tts|live|audio|embed|thinking|exp|robotics|computer|learn/.test(n));
+    .filter((n) => /^gemini-/.test(n) && /flash/.test(n) && !/image|tts|live|audio|embed|thinking|exp|robotics|computer|learn/.test(n))
+    // ไม่ใช่ lite ก่อน, alias -latest ก่อน, รุ่นเสถียรก่อน preview, แล้วเลขเวอร์ชันสูงสุด
+    .sort((x, y) => (/lite/.test(x) - /lite/.test(y)) || (/-latest$/.test(y) - /-latest$/.test(x)) || (/preview/.test(x) - /preview/.test(y)) || ver(y) - ver(x));
   if (!names.length) throw new Error('GEMINI: ไม่มีโมเดล flash ที่ใช้อ่านรูปได้');
-  const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
-  // alias -latest ก่อน, รุ่นเสถียรก่อน preview, แล้วเลขเวอร์ชันสูงสุด
-  names.sort((x, y) => (/-latest$/.test(y) - /-latest$/.test(x)) || (/preview/.test(x) - /preview/.test(y)) || ver(y) - ver(x));
-  return names[0];
+  modelsCache = { at: Date.now(), names };
+  return names;
 }
-const callGemini = (b64, mime) => fetch(`${BASE}models/${encodeURIComponent(model)}:generateContent`, {
-  method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': KEY },
-  body: JSON.stringify({ contents: [{ parts: [{ text: P.AI_PROMPT }, { inline_data: { mime_type: mime, data: b64 } }] }],
-    generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
-});
+async function callGemini(b64, mime, m) {
+  try {
+    return await fetch(`${BASE}models/${encodeURIComponent(m)}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': KEY }, signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ contents: [{ parts: [{ text: P.AI_PROMPT }, { inline_data: { mime_type: mime, data: b64 } }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
+    });
+  } catch (e) { // หมดเวลา/เน็ตหลุด ถือเป็นปัญหาชั่วคราว
+    return { ok: false, status: 504, text: async () => 'timeout: ' + e.message };
+  }
+}
 async function readSlip(b64, mime) {
-  let r = await callGemini(b64, mime);
-  if (r.status === 404) { model = await resolveModel(); console.log('ใช้โมเดล', model); r = await callGemini(b64, mime); }
-  if (!r.ok) throw new Error(`GEMINI ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 200)}`);
+  const deadline = Date.now() + 55000; // ไม่ให้นานจน Shortcut/เบราว์เซอร์หมดเวลา
+  let r = await callGemini(b64, mime, model);
+  if (r.status === 404) { model = (await listModels())[0]; console.log('ใช้โมเดล', model); r = await callGemini(b64, mime, model); }
+  for (const wait of [1500, 4000]) { // Google ยุ่ง -> รอแล้วลองรุ่นเดิมอีก
+    if (!BUSY.has(r.status) || Date.now() + wait > deadline) break;
+    await sleep(wait); r = await callGemini(b64, mime, model);
+  }
+  if (BUSY.has(r.status)) { // ยังยุ่ง -> ลองรุ่นอื่นชั่วคราว (ไม่เปลี่ยนรุ่นหลัก)
+    let others = [];
+    try { others = (await listModels()).filter((n) => n !== model).slice(0, 3); } catch { /* ใช้ error เดิม */ }
+    for (const m of others) {
+      if (Date.now() > deadline) break;
+      const r2 = await callGemini(b64, mime, m);
+      r = r2;
+      if (r2.ok) { console.log('Gemini ยุ่ง ใช้รุ่นสำรอง', m); break; }
+      if (!BUSY.has(r2.status) && r2.status !== 404) break;
+    }
+  }
+  if (!r.ok) throw Object.assign(new Error(`GEMINI ${r.status}: ${(await r.text()).replace(/\s+/g, ' ').slice(0, 200)}`), { busy: BUSY.has(r.status) });
   const j = await r.json();
   const txt = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').replace(/^\s*```(?:json)?|```\s*$/g, '').trim();
   return P.normalizeAI(JSON.parse(txt));
@@ -161,7 +189,12 @@ async function api(req, res, url) {
     if (bump(hits, ip, 3600000) > 150) return send(res, 429, { error: 'ส่งรูปเกินโควตาต่อชั่วโมง' });
     const body = await readJson(req);
     try { return send(res, 200, await ingest(body, body.source === 'web' ? 'web' : 'shortcut')); }
-    catch (e) { if (e.http) throw e; console.error(e.message); return send(res, 502, { error: String(e.message).slice(0, 300), message: '❌ อ่านสลิปไม่ได้: ' + String(e.message).slice(0, 120) }); }
+    catch (e) {
+      if (e.http) throw e;
+      console.error(e.message);
+      const msg = e.busy ? 'Gemini มีคนใช้เยอะชั่วคราว ลองใหม่อีกสักครู่' : 'อ่านสลิปไม่ได้: ' + String(e.message).slice(0, 160);
+      return send(res, e.busy ? 503 : 502, { error: msg, message: '❌ ' + msg });
+    }
   }
   if (p === '/api/items' && m === 'GET') {
     const month = url.searchParams.get('month');
