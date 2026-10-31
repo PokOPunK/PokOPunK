@@ -9,7 +9,7 @@ const mock = http.createServer((req, res) => {
     if (m === 'gemini-flash-latest') { res.statusCode = 404; return res.end('{"error":"no model"}'); }
     seen.calls++;
     const out = next.shift() || { is_slip: false };
-    if (out === 'ERR') { res.statusCode = 429; return res.end('{"error":"quota"}'); }
+    if (typeof out === 'string') { res.statusCode = +out.slice(1); return res.end('{"error":"' + out + '"}'); } // 'E503' = ตอบ error 503
     res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: '```json\n' + JSON.stringify(out) + '\n```' }] } }] }));
   });
 });
@@ -53,9 +53,17 @@ mock.listen(0, async () => {
   assert.strictEqual(r.j.status, 'review'); const revId = r.j.item.id;
   let list = await call('GET', '/api/items');
   assert.strictEqual(list.j.review.length, 1);
-  // 6) Gemini ล่ม -> 502 พร้อมข้อความ และส่งรูปเดิมใหม่ได้ภายหลัง
-  next = ['ERR']; r = await call('POST', '/api/ingest', { image_b64: img(5) });
-  assert.strictEqual(r.s, 502); assert.ok(r.j.message.startsWith('❌'));
+  // 6) Gemini error ถาวร (400) -> 502 ทันที ไม่ลองซ้ำ และส่งรูปเดิมใหม่ได้ภายหลัง
+  let c0 = seen.calls; next = ['E400']; r = await call('POST', '/api/ingest', { image_b64: img(5) });
+  assert.strictEqual(r.s, 502); assert.ok(r.j.message.startsWith('❌')); assert.strictEqual(seen.calls - c0, 1);
+  // 6b) Gemini ยุ่ง (503) -> ลองรุ่นเดิมอีก 2 ครั้ง แล้วสลับไปรุ่นสำรองที่ไม่ใช่ lite และไม่เปลี่ยนรุ่นหลัก
+  c0 = seen.models.length; next = ['E503', 'E503', 'E503', { is_slip: true, amount: 75, date: '2026-10-27', merchant: 'Bolt', category: 'travel' }];
+  r = await call('POST', '/api/ingest', { image_b64: img(7) });
+  assert.strictEqual(r.j.status, 'saved'); assert.deepStrictEqual(seen.models.slice(c0), ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-3-flash-preview']);
+  // 6c) ยุ่งทุกรุ่น -> 503 พร้อมข้อความที่อ่านเข้าใจ
+  next = ['E503', 'E503', 'E503', 'E503', 'E503']; r = await call('POST', '/api/ingest', { image_b64: img(8) });
+  assert.strictEqual(r.s, 503); assert.ok(r.j.message.includes('มีคนใช้เยอะ'), r.j.message);
+  next = [];
   next = [{ is_slip: true, amount: 50, date: '2026-10-30', merchant: 'Grab', category: 'travel' }];
   assert.strictEqual((await call('POST', '/api/ingest', { image_b64: img(5) })).j.status, 'saved');
 
@@ -80,7 +88,7 @@ mock.listen(0, async () => {
 
   // รายเดือน + CSV
   list = await call('GET', '/api/items?month=2026-10');
-  assert.strictEqual(list.j.items.length, 4);
+  assert.strictEqual(list.j.items.length, 5);
   assert.ok(list.j.items.every((i) => i.date.startsWith('2026-10')));
   const c = await fetch(base + '/api/export.csv', { headers: H }); const buf = Buffer.from(await c.arrayBuffer());
   assert.ok(c.headers.get('content-type').includes('text/csv'));
