@@ -1,12 +1,16 @@
-const CACHE = 'slipsense-v1';
+const CACHE = 'slipsense-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'app.js', 'manifest.json', 'icon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
-// แคชทุกอย่างรวมถึงไฟล์ OCR/ภาษาไทยจาก CDN เพื่อใช้ออฟไลน์ได้หลังเปิดครั้งแรก
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(caches.match(e.request).then((hit) => {
-    const net = fetch(e.request).then((r) => { if (r.ok || r.type === 'opaque') { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, cp)); } return r; }).catch(() => hit);
-    return hit || net;
-  }));
+  const req = e.request, url = new URL(req.url);
+  if (req.method !== 'GET' || url.hostname.endsWith('googleapis.com')) return; // ไม่แตะ API ของ Gemini
+  const put = (r) => { if (r.ok) { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(req, cp)); } return r; };
+  if (url.origin === location.origin) {
+    // ไฟล์ของแอพ: โหลดจากเน็ตก่อนเพื่อให้ได้เวอร์ชันใหม่เสมอ ออฟไลน์ค่อยใช้แคช
+    e.respondWith(fetch(req).then(put).catch(() => caches.match(req)));
+  } else {
+    // ไฟล์ OCR/ภาษาไทยจาก CDN: ใช้แคชก่อน (ไฟล์ใหญ่ ไม่เปลี่ยน) ใช้ออฟไลน์ได้
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then(put)));
+  }
 });

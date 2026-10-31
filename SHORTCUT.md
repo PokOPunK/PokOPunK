@@ -38,7 +38,7 @@
 1. **Resize Image** (ปรับขนาดรูปภาพ) กว้าง 1200 → **Convert Image** เป็น JPEG
 2. **Base64 Encode** (เข้ารหัส Base64) ผลของข้อ 1 ตั้ง Line Breaks = None
 3. **Get Contents of URL**
-   - URL: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` (ชื่อโมเดลเปลี่ยนได้ตามที่ Google ให้ใช้ฟรี)
+   - URL: `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent` (ถ้าได้ 404 ให้เปิด https://generativelanguage.googleapis.com/v1beta/models?key=คีย์ของคุณ ดูชื่อโมเดลที่ใช้ได้ แล้วแทนชื่อนี้)
    - Method: POST, Headers: `x-goog-api-key` = คีย์ของคุณ, `Content-Type` = `application/json`
    - Request Body: **File** ใส่ Text ที่ประกอบเป็น JSON ดังนี้ (แทน `<BASE64>` ด้วยผลข้อ 2, `<PROMPT>` ด้วยข้อความจาก `AI_PROMPT` ใน `app.js`โดยขึ้นบรรทัดใหม่ให้เป็น `\n`):
      `{"contents":[{"parts":[{"text":"<PROMPT>"},{"inline_data":{"mime_type":"image/jpeg","data":"<BASE64>"}}]}],"generationConfig":{"responseMimeType":"application/json","temperature":0}}`

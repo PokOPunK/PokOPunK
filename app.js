@@ -47,7 +47,7 @@
     if (document.activeElement !== $('#gemKey')) $('#gemKey').value = db.settings.gemKey || '';
     if (document.activeElement !== $('#gemModel')) $('#gemModel').value = db.settings.gemModel || '';
   }
-  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3500); }
+  function toast(msg, ms = 3500) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
   function shiftMonth(d) { let [y, m] = ym.split('-').map(Number); m += d; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } ym = `${y}-${String(m).padStart(2, '0')}`; render(); }
 
   // ---------- review / edit dialog ----------
@@ -161,14 +161,36 @@
       merchant, category: catById[o.category] ? o.category : fallbackCat, isSlip: o.is_slip !== false
     };
   }
-  async function geminiRead(dataUrl) {
-    const { gemKey, gemModel } = db.settings;
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(gemModel || 'gemini-2.5-flash')}:generateContent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gemKey },
+  const GEM = 'https://generativelanguage.googleapis.com/v1beta/';
+  // ถาม Google ว่าบัญชีนี้ใช้โมเดลไหนได้ แล้วเลือกรุ่น flash ที่รองรับ generateContent (ไม่เอา lite/image/tts ฯลฯ)
+  async function resolveGeminiModel() {
+    const res = await fetch(GEM + 'models?pageSize=200', { headers: { 'x-goog-api-key': db.settings.gemKey } });
+    if (!res.ok) throw new Error(`GEMINI ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const names = ((await res.json()).models || [])
+      .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m) => m.name.replace(/^models\//, ''))
+      .filter((n) => /^gemini-/.test(n) && /flash/.test(n) && !/lite|image|tts|live|audio|embed|thinking|exp|robotics|computer|learn/.test(n));
+    if (!names.length) throw new Error('GEMINI: บัญชีนี้ไม่มีโมเดล flash ที่ใช้อ่านรูปได้');
+    const ver = (n) => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    names.sort((x, y) => (/-latest$/.test(y) - /-latest$/.test(x)) || (/preview/.test(x) - /preview/.test(y)) || ver(y) - ver(x)); // alias -latest ก่อน, รุ่นเสถียรก่อน preview, แล้วเลขเวอร์ชันสูงสุด
+    return names[0];
+  }
+  async function geminiCall(dataUrl, model) {
+    return fetch(`${GEM}models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': db.settings.gemKey },
       body: JSON.stringify({ contents: [{ parts: [{ text: AI_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } }] }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
     });
-    if (!res.ok) throw new Error(`GEMINI ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  }
+  async function geminiRead(dataUrl) {
+    let model = db.settings.gemModel || 'gemini-flash-latest';
+    let res = await geminiCall(dataUrl, model);
+    if (res.status === 404) { // ชื่อโมเดลไม่ถูก/ถูกเลิกใช้ -> หาชื่อที่ใช้ได้เอง แล้วจำไว้
+      model = await resolveGeminiModel();
+      db.settings.gemModel = model; persist(); render();
+      res = await geminiCall(dataUrl, model);
+    }
+    if (!res.ok) throw new Error(`GEMINI ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 300)}`);
     const j = await res.json();
     const txt = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').replace(/^\s*```(?:json)?|```\s*$/g, '').trim();
     return fromAI(JSON.parse(txt));
