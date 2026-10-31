@@ -21,42 +21,53 @@
 </header>
 
 <main>
-  <section class="total">
-    <div class="muted">ค่าใช้จ่ายรวมเดือนนี้</div>
-    <div id="totalAmt" class="big">฿0.00</div>
-    <div id="totalCnt" class="muted"></div>
-    <div id="ccNote" class="muted small"></div>
+  <section id="noServer" class="card center" hidden>
+    <h2>ต้องเปิดจากเซิร์ฟเวอร์ของคุณ</h2>
+    <p class="muted">แอพนี้เก็บข้อมูลและอ่านสลิปที่เซิร์ฟเวอร์ เช่น https://slip.penquinwatch.com (ดู DEPLOY.md)</p>
   </section>
 
-  <section id="bars" class="card"></section>
+  <section id="login" class="card" hidden>
+    <form id="loginForm">
+      <h2>เข้าสู่ระบบ</h2>
+      <label class="fld">รหัสผ่าน (APP_PASSWORD ที่ตั้งตอน deploy)<input id="passInput" type="password" autocomplete="current-password" required></label>
+      <p id="loginMsg" class="err"></p>
+      <button class="primary wide">เข้าสู่ระบบ</button>
+    </form>
+  </section>
 
-  <section class="card">
-    <div class="row between">
-      <h2>รายการ</h2>
-      <div class="row gap">
-        <button class="ghost" id="exportBtn">⬇︎ CSV</button>
-        <button class="ghost" id="addBtn">＋ เพิ่มเอง</button>
+  <div id="app" hidden>
+    <button id="reviewBar" class="warn" hidden></button>
+    <section class="total">
+      <div class="muted">ค่าใช้จ่ายรวมเดือนนี้</div>
+      <div id="totalAmt" class="big">฿0.00</div>
+      <div id="totalCnt" class="muted"></div>
+      <div id="ccNote" class="muted small"></div>
+    </section>
+
+    <section id="bars" class="card"></section>
+
+    <section class="card">
+      <div class="row between">
+        <h2>รายการ</h2>
+        <div class="row gap">
+          <button class="ghost" id="exportBtn">⬇︎ CSV</button>
+          <button class="ghost" id="addBtn">＋ เพิ่มเอง</button>
+        </div>
       </div>
-    </div>
-    <ul id="list"></ul>
-    <p id="empty" class="muted center" hidden>ยังไม่มีรายการ กดปุ่ม “สแกนสลิป” ด้านล่างเพื่อเริ่มต้น</p>
-  </section>
+      <ul id="list"></ul>
+      <p id="empty" class="muted center" hidden>ยังไม่มีรายการเดือนนี้ กด “สแกนสลิป” หรือให้ Shortcut ส่งมาให้</p>
+    </section>
 
-  <section class="card">
-    <label class="row between"><span>บันทึกอัตโนมัติเมื่ออ่านจำนวนเงินและวันที่ได้ครบ</span>
-      <input type="checkbox" id="autoSave"></label>
-    <label class="row between"><span>อ่านสลิปด้วย Gemini (แม่นกว่า)</span><input type="checkbox" id="useAI"></label>
-    <div id="aiBox" hidden>
-      <label class="fld">Gemini API key<input id="gemKey" type="password" autocomplete="off" placeholder="วางคีย์จาก aistudio.google.com"></label>
-      <label class="fld">ชื่อโมเดล<input id="gemModel" type="text" placeholder="gemini-2.5-flash"></label>
-      <p class="muted small">⚠️ เมื่อเปิดโหมดนี้ รูปสลิปจะถูกส่งไปที่ Google คีย์เก็บในเครื่องนี้เท่านั้น ถ้า Gemini ใช้ไม่ได้ แอพจะถอยไปอ่านในเครื่องเอง</p>
-    </div>
-    <p class="muted small">ข้อมูลและรูปทั้งหมดประมวลผลและเก็บในเครื่องนี้เท่านั้น ไม่ถูกส่งไปเซิร์ฟเวอร์</p>
-  </section>
+    <section class="card">
+      <button id="migrate" class="ghost wide" hidden></button>
+      <p class="muted small">ข้อมูลเก็บที่เซิร์ฟเวอร์ของคุณ รูปสลิปถูกส่งให้ Gemini (Google) อ่าน แล้วไม่ถูกเก็บ (เก็บแค่รูปย่อเมื่อสแกนจากแอพ)</p>
+      <button id="logout" class="ghost">ออกจากระบบ</button>
+    </section>
+
+    <label class="fab" for="fileInput">📷 สแกนสลิป</label>
+    <input id="fileInput" type="file" accept="image/*" multiple hidden>
+  </div>
 </main>
-
-<label class="fab" for="fileInput">📷 สแกนสลิป</label>
-<input id="fileInput" type="file" accept="image/*" multiple hidden>
 
 <div id="progress" class="progress" hidden>
   <div id="progressText"></div>
@@ -77,10 +88,9 @@
     <label>หมวดหมู่<select name="category"></select></label>
     <label>หมายเหตุ<input name="note" type="text" maxlength="120"></label>
     <label class="row"><input type="checkbox" name="remember" checked> จำว่าผู้รับนี้อยู่หมวดนี้</label>
-    <details><summary>ข้อความที่อ่านได้</summary><pre id="raw"></pre></details>
     <div class="row gap actions">
       <button type="button" class="danger" id="delBtn" hidden>ลบ</button>
-      <button type="button" class="ghost grow" id="skipBtn">ข้าม</button>
+      <button type="button" class="ghost grow" id="skipBtn">ยกเลิก</button>
       <button type="submit" class="primary grow" value="save">บันทึก</button>
     </div>
   </form>

@@ -1,0 +1,14 @@
+services:
+  slip-sense:
+    build: .
+    container_name: slip-sense
+    restart: unless-stopped
+    env_file: .env            # GEMINI_API_KEY=...  APP_PASSWORD=...  (ห้าม commit)
+    volumes:
+      - slip-data:/data       # ฐานข้อมูล SQLite (อยู่รอดแม้ rebuild)
+    networks: [penquin_watch_default]
+volumes:
+  slip-data:
+networks:
+  penquin_watch_default:
+    external: true            # network เดียวกับ Caddy ของ penquin-watch
