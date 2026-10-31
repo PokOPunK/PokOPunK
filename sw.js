@@ -1,4 +1,4 @@
-const CACHE = 'slipsense-v3';
+const CACHE = 'slipsense-v4';
 const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'app.js', 'manifest.json', 'icon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -9,8 +9,5 @@ self.addEventListener('fetch', (e) => {
   if (url.origin === location.origin) {
     // ไฟล์ของแอพ: โหลดจากเน็ตก่อนเพื่อให้ได้เวอร์ชันใหม่เสมอ ออฟไลน์ค่อยใช้แคช
     e.respondWith(fetch(req).then(put).catch(() => caches.match(req)));
-  } else {
-    // ไฟล์ OCR/ภาษาไทยจาก CDN: ใช้แคชก่อน (ไฟล์ใหญ่ ไม่เปลี่ยน) ใช้ออฟไลน์ได้
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then(put)));
   }
 });

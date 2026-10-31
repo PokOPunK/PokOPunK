@@ -38,3 +38,7 @@ pre{white-space:pre-wrap;font-size:12px;max-height:160px;overflow:auto;backgroun
 
 .fld{display:block;margin-top:10px;font-size:14px;color:var(--muted)}
 [hidden]{display:none!important}
+.wide{width:100%;margin-top:10px}
+.err{color:#dc2626;min-height:1em;font-size:14px}
+.warn{display:block;width:100%;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:12px;padding:12px;margin-bottom:12px;font-weight:600;text-align:left}
+li.rev .nm{color:#b45309}
