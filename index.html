@@ -25,6 +25,7 @@
     <div class="muted">ค่าใช้จ่ายรวมเดือนนี้</div>
     <div id="totalAmt" class="big">฿0.00</div>
     <div id="totalCnt" class="muted"></div>
+    <div id="ccNote" class="muted small"></div>
   </section>
 
   <section id="bars" class="card"></section>
@@ -44,6 +45,12 @@
   <section class="card">
     <label class="row between"><span>บันทึกอัตโนมัติเมื่ออ่านจำนวนเงินและวันที่ได้ครบ</span>
       <input type="checkbox" id="autoSave"></label>
+    <label class="row between"><span>อ่านสลิปด้วย Gemini (แม่นกว่า)</span><input type="checkbox" id="useAI"></label>
+    <div id="aiBox" hidden>
+      <label class="fld">Gemini API key<input id="gemKey" type="password" autocomplete="off" placeholder="วางคีย์จาก aistudio.google.com"></label>
+      <label class="fld">ชื่อโมเดล<input id="gemModel" type="text" placeholder="gemini-2.5-flash"></label>
+      <p class="muted small">⚠️ เมื่อเปิดโหมดนี้ รูปสลิปจะถูกส่งไปที่ Google คีย์เก็บในเครื่องนี้เท่านั้น ถ้า Gemini ใช้ไม่ได้ แอพจะถอยไปอ่านในเครื่องเอง</p>
+    </div>
     <p class="muted small">ข้อมูลและรูปทั้งหมดประมวลผลและเก็บในเครื่องนี้เท่านั้น ไม่ถูกส่งไปเซิร์ฟเวอร์</p>
   </section>
 </main>

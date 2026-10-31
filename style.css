@@ -35,3 +35,5 @@ input[type=checkbox]{width:auto;margin:0 8px 0 0}
 #thumb{max-height:150px;display:block;margin:8px auto;border-radius:8px}
 pre{white-space:pre-wrap;font-size:12px;max-height:160px;overflow:auto;background:var(--bg);padding:8px;border-radius:8px}
 .actions{margin-top:14px}
+
+.fld{display:block;margin-top:10px;font-size:14px;color:var(--muted)}
