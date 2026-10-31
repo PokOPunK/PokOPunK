@@ -25,14 +25,17 @@
     const [y, m] = ym.split('-').map(Number);
     $('#monthLabel').textContent = `${TH_MONTHS[m - 1]} ${y + 543}`;
     const items = db.items.filter((i) => i.date.startsWith(ym)).sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || '')));
-    const total = items.reduce((s, i) => s + i.amount, 0);
+    const counted = items.filter((i) => !(catById[i.category] || {}).excluded);
+    const total = counted.reduce((s, i) => s + i.amount, 0);
+    const ccSum = items.filter((i) => (catById[i.category] || {}).excluded).reduce((s, i) => s + i.amount, 0);
+    $('#ccNote').textContent = ccSum ? `ชำระบัตรเครดิต ${fmt(ccSum)} (ไม่นับรวมในยอดนี้ เพื่อไม่ให้ซ้ำกับรายการที่รูด)` : '';
     $('#totalAmt').textContent = fmt(total);
-    $('#totalCnt').textContent = `${items.length} รายการ`;
+    $('#totalCnt').textContent = `${counted.length} รายการ`;
     const by = {};
-    items.forEach((i) => (by[i.category] = (by[i.category] || 0) + i.amount));
+    counted.forEach((i) => (by[i.category] = (by[i.category] || 0) + i.amount));
     $('#bars').innerHTML = '<h2>แยกตามหมวดหมู่</h2>' + (Object.entries(by).sort((a, b) => b[1] - a[1]).map(([id, v]) => {
       const c = catById[id] || catById.other;
-      return `<div class="bar"><div class="lbl"><span>${c.icon} ${c.name}</span><span>${fmt(v)} · ${Math.round(v / total * 100)}%</span></div><div class="t"><i style="width:${v / total * 100}%;background:${c.color}"></i></div></div>`;
+      return `<div class="bar"><div class="lbl"><span>${c.icon} ${c.name}</span><span>${fmt(v)} · ${Math.round(v / (total || 1) * 100)}%</span></div><div class="t"><i style="width:${v / (total || 1) * 100}%;background:${c.color}"></i></div></div>`;
     }).join('') || '<p class="muted">ยังไม่มีข้อมูล</p>');
     $('#list').innerHTML = items.map((i) => {
       const c = catById[i.category] || catById.other;
@@ -40,6 +43,9 @@
     }).join('');
     $('#empty').hidden = items.length > 0;
     $('#autoSave').checked = !!db.settings.auto;
+    $('#useAI').checked = !!db.settings.useAI; $('#aiBox').hidden = !db.settings.useAI;
+    if (document.activeElement !== $('#gemKey')) $('#gemKey').value = db.settings.gemKey || '';
+    if (document.activeElement !== $('#gemModel')) $('#gemModel').value = db.settings.gemModel || '';
   }
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3500); }
   function shiftMonth(d) { let [y, m] = ym.split('-').map(Number); m += d; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } ym = `${y}-${String(m).padStart(2, '0')}`; render(); }
@@ -84,7 +90,7 @@
   const isDup = (d) => db.items.some((i) => i.id !== d.id && i.amount === d.amount && i.date === d.date && (i.time || '') === (d.time || '') && ruleKey(i.merchant) === ruleKey(d.merchant));
 
   // ---------- image + OCR ----------
-  async function prep(file) {
+  async function prep(file, wantColor) {
     const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
     const scale = Math.min(2, Math.max(0.5, 1500 / bmp.width), 3000 / bmp.height);
     const c = document.createElement('canvas');
@@ -94,6 +100,7 @@
     const t = document.createElement('canvas'); const ts = 160 / Math.max(c.width, c.height);
     t.width = Math.round(c.width * ts); t.height = Math.round(c.height * ts);
     t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+    const colorJpeg = wantColor ? c.toDataURL('image/jpeg', 0.85) : null; // ก่อนแปลงเป็นขาวดำ
     const img = ctx.getImageData(0, 0, c.width, c.height), p = img.data;
     for (let i = 0; i < p.length; i += 4) { // ขาวดำ + เพิ่มคอนทราสต์ ช่วยให้ OCR แม่นขึ้น
       const g = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
@@ -102,7 +109,7 @@
     }
     ctx.putImageData(img, 0, 0);
     bmp.close?.();
-    return { canvas: c, thumb: t.toDataURL('image/jpeg', 0.6) };
+    return { canvas: c, thumb: t.toDataURL('image/jpeg', 0.6), colorJpeg };
   }
 
   let worker, workerP, onProg = () => {};
@@ -122,10 +129,10 @@
 
   let busy = false;
   // อ่านข้อความสลิป -> แยกข้อมูล -> บันทึกอัตโนมัติ หรือเปิดหน้าตรวจสอบ คืนค่า 'saved' | 'dup' | 'skip'
-  async function processText(text, thumb, title) {
-    const r = parseSlip(text);
+  async function processText(text, thumb, title) { return processParsed(parseSlip(text), text, thumb, title); }
+  async function processParsed(r, raw, thumb, title) {
     const learned = r.merchant && db.rules[ruleKey(r.merchant)];
-    const draft = { amount: r.amount, date: r.date, time: r.time, merchant: r.merchant, category: learned || r.category, thumb, raw: text, createdAt: Date.now() };
+    const draft = { amount: r.amount, date: r.date, time: r.time, merchant: r.merchant, category: learned || r.category, thumb, raw, createdAt: Date.now() };
     let out;
     if (db.settings.auto && draft.amount > 0 && draft.date) {
       if (isDup(draft)) out = 'dup'; else { saveItem({ ...draft, remember: false }); out = 'saved'; }
@@ -138,20 +145,54 @@
     return out;
   }
 
+  // ---------- Gemini ----------
+  const AI_PROMPT = `คุณอ่านสลิปโอนเงิน/จ่ายบิล/ใบเสร็จของไทยจากรูป ตอบเป็น JSON อย่างเดียวตามรูปแบบนี้:
+{"is_slip": true/false, "amount": ตัวเลขจำนวนเงินที่โอน/จ่ายจริง (ไม่รวมค่าธรรมเนียม) หรือ null, "date": "YYYY-MM-DD" แบบ ค.ศ. (ถ้าเป็น พ.ศ. ให้ลบ 543) หรือ null, "time": "HH:MM" หรือ null, "merchant": "ชื่อผู้รับ/ร้านค้า/ผู้ให้บริการ" , "category": หนึ่งใน ${CATEGORIES.map((c) => c.id).join('|')}}
+หมวด: ${CATEGORIES.map((c) => c.id + '=' + c.name).join(', ')}
+ถ้ารูปไม่ใช่สลิปหรือใบเสร็จให้ is_slip=false อย่าเดาค่าที่มองไม่เห็นชัด ให้ใส่ null`;
+  function fromAI(o) {
+    const amount = typeof o.amount === 'number' ? o.amount : parseFloat(String(o.amount ?? '').replace(/,/g, ''));
+    const merchant = String(o.merchant || '').slice(0, 80);
+    const fallbackCat = SlipParser.categorize('', merchant);
+    return {
+      amount: amount > 0 ? amount : null,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(o.date || '') ? o.date : null,
+      time: /^\d{2}:\d{2}$/.test(o.time || '') ? o.time : null,
+      merchant, category: catById[o.category] ? o.category : fallbackCat, isSlip: o.is_slip !== false
+    };
+  }
+  async function geminiRead(dataUrl) {
+    const { gemKey, gemModel } = db.settings;
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(gemModel || 'gemini-2.5-flash')}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gemKey },
+      body: JSON.stringify({ contents: [{ parts: [{ text: AI_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
+    });
+    if (!res.ok) throw new Error(`GEMINI ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const j = await res.json();
+    const txt = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').replace(/^\s*```(?:json)?|```\s*$/g, '').trim();
+    return fromAI(JSON.parse(txt));
+  }
+
   // รับข้อความจาก iOS Shortcuts: index.html#import=<ข้อความที่ URL-encode>  คั่นแต่ละสลิปด้วยบรรทัด ====
   async function importFromHash() {
     const m = location.hash.match(/^#import=(.*)$/s);
-    if (!m) return;
+    if (!m || busy) return;
     history.replaceState(null, '', location.pathname + location.search);
     let text;
     try { text = decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch { toast('ข้อความที่ส่งมาอ่านไม่ได้'); return; }
-    const chunks = text.split(/^\s*={3,}\s*$/m).map((c) => c.trim()).filter((c) => /บาท|จำนวน|โอนเงิน|สำเร็จ|ยอด|ชำระ|thb|amount|total|transfer/i.test(c) && /\d/.test(c)); // ข้ามภาพแคปจอที่ไม่ใช่สลิป
+    const chunks = text.split(/^\s*={3,}\s*$/m).map((c) => c.trim()).filter((c) => c.startsWith('{') || /บาท|จำนวน|โอนเงิน|สำเร็จ|ยอด|ชำระ|thb|amount|total|transfer/i.test(c) && /\d/.test(c)); // ข้ามภาพแคปจอที่ไม่ใช่สลิป
     if (!chunks.length) { toast('ไม่พบสลิปใหม่'); return; }
     busy = true;
     let saved = 0, dups = 0, skipped = 0;
     try {
       for (let n = 0; n < chunks.length; n++) {
-        const o = await processText(chunks[n], null, `ตรวจสอบสลิป ${n + 1}/${chunks.length}`);
+        let o;
+        if (chunks[n].startsWith('{')) { // JSON ที่ Shortcut ได้จาก Gemini
+          let r; try { r = fromAI(JSON.parse(chunks[n])); } catch { skipped++; continue; }
+          if (!r.isSlip) { skipped++; continue; }
+          o = await processParsed(r, chunks[n], null, `ตรวจสอบสลิป ${n + 1}/${chunks.length}`);
+        } else o = await processText(chunks[n], null, `ตรวจสอบสลิป ${n + 1}/${chunks.length}`);
         if (o === 'saved') saved++; else if (o === 'dup') dups++; else skipped++;
       }
     } finally { busy = false; }
@@ -161,19 +202,35 @@
   async function handleFiles(files) {
     if (busy || !files.length) return;
     busy = true;
-    let saved = 0, skipped = 0, dups = 0, failed = 0;
+    let saved = 0, skipped = 0, dups = 0, failed = 0, notslip = 0, aiFail = 0;
     try {
       for (let n = 0; n < files.length; n++) {
         const label = `สลิป ${n + 1}/${files.length}`;
         try {
+          const useAI = db.settings.useAI && db.settings.gemKey;
           setProgress(`${label}: กำลังเตรียมรูป…`, 0);
-          const { canvas, thumb } = await prep(files[n]);
-          setProgress(`${label}: กำลังโหลดตัวอ่านภาษาไทย (ครั้งแรกอาจนาน)…`, 0);
-          onProg = (m) => { if (m.status === 'recognizing text') setProgress(`${label}: กำลังอ่านข้อความ ${Math.round(m.progress * 100)}%`, m.progress * 100); };
-          const w = await getWorker();
-          const { data } = await w.recognize(canvas);
-          setProgress(null);
-          const o = await processText(data.text, thumb, `ตรวจสอบสลิป ${n + 1}/${files.length}`);
+          const { canvas, thumb, colorJpeg } = await prep(files[n], useAI);
+          let o;
+          if (useAI) {
+            try {
+              setProgress(`${label}: ให้ Gemini อ่านสลิป…`, 30);
+              const r = await geminiRead(colorJpeg);
+              setProgress(null);
+              if (!r.isSlip) { notslip++; continue; }
+              o = await processParsed(r, '(อ่านด้วย Gemini)', thumb, `ตรวจสอบสลิป ${n + 1}/${files.length}`);
+            } catch (e) {
+              console.warn(e); aiFail++; // ถอยไปใช้ OCR ในเครื่อง
+              if (aiFail === 1) toast(/GEMINI/.test(e.message) ? 'Gemini ใช้ไม่ได้ (' + e.message.slice(0, 60) + ') – ใช้ OCR ในเครื่องแทน' : 'Gemini ตอบกลับผิดรูปแบบ – ใช้ OCR ในเครื่องแทน');
+            }
+          }
+          if (!o) {
+            setProgress(`${label}: กำลังโหลดตัวอ่านภาษาไทย (ครั้งแรกอาจนาน)…`, 0);
+            onProg = (m) => { if (m.status === 'recognizing text') setProgress(`${label}: กำลังอ่านข้อความ ${Math.round(m.progress * 100)}%`, m.progress * 100); };
+            const w = await getWorker();
+            const { data } = await w.recognize(canvas);
+            setProgress(null);
+            o = await processText(data.text, thumb, `ตรวจสอบสลิป ${n + 1}/${files.length}`);
+          }
           if (o === 'saved') saved++; else if (o === 'dup') dups++; else skipped++;
         } catch (e) {
           console.error(e); failed++;
@@ -181,13 +238,16 @@
         }
       }
     } finally { busy = false; setProgress(null); render(); }
-    toast(`บันทึก ${saved} รายการ` + (dups ? ` · ซ้ำ ${dups}` : '') + (skipped ? ` · ข้าม ${skipped}` : '') + (failed ? ` · อ่านไม่ได้ ${failed}` : ''));
+    toast(`บันทึก ${saved} รายการ` + (dups ? ` · ซ้ำ ${dups}` : '') + (skipped ? ` · ข้าม ${skipped}` : '') + (notslip ? ` · ไม่ใช่สลิป ${notslip}` : '') + (failed ? ` · อ่านไม่ได้ ${failed}` : ''));
   }
 
   // ---------- events ----------
   $('#fileInput').addEventListener('change', (e) => { const f = [...e.target.files]; e.target.value = ''; handleFiles(f); });
   $('#prev').onclick = () => shiftMonth(-1); $('#next').onclick = () => shiftMonth(1);
   $('#autoSave').onchange = (e) => { db.settings.auto = e.target.checked; persist(); };
+  $('#useAI').onchange = (e) => { db.settings.useAI = e.target.checked; persist(); render(); };
+  $('#gemKey').onchange = (e) => { db.settings.gemKey = e.target.value.trim(); persist(); };
+  $('#gemModel').onchange = (e) => { db.settings.gemModel = e.target.value.trim(); persist(); };
   $('#addBtn').onclick = async () => {
     const res = await openDialog({ date: ym === today().slice(0, 7) ? today() : ym + '-01', category: 'other' }, { isNew: true, title: 'เพิ่มรายการเอง' });
     if (res !== 'skip') { saveItem(res); ym = res.date.slice(0, 7); render(); }
@@ -211,5 +271,6 @@
 
   render();
   importFromHash();
+  addEventListener('hashchange', importFromHash);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

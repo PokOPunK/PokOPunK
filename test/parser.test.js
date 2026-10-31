@@ -10,6 +10,8 @@ const cases = [
     exp: { amount: 2340.75, date: '2026-01-12', category: 'bills' } },
   { name: 'ปั๊มน้ำมัน (EN date)', text: `PTT Station\n03 Aug 2026 14:20\nTotal 1,000.00\nFee 0.00`,
     exp: { amount: 1000, date: '2026-08-03', time: '14:20', category: 'travel' } },
+  { name: 'จ่ายบัตรเครดิต', text: `ชำระเงินสำเร็จ\n2 พ.ย. 2569 10:00\nบริษัท บัตรกรุงไทย KTC\nจำนวน 5,000.00 บาท`,
+    exp: { amount: 5000, category: 'cc' } },
   { name: 'OCR แทรกช่องว่างในคำไทย', text: `จ ำ น ว น 89.00 บ า ท\n1 ก.ย. 69\nไปยัง เ ซ เ ว่ น`,
     exp: { amount: 89 } },
 ];
