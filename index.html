@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>สลิปเซ้นส์ – สแกนสลิปแยกค่าใช้จ่าย</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🧾 สลิปเซ้นส์</h1>
+  <div class="month">
+    <button id="prev" aria-label="เดือนก่อน">‹</button>
+    <span id="monthLabel"></span>
+    <button id="next" aria-label="เดือนถัดไป">›</button>
+  </div>
+</header>
+
+<main>
+  <section class="total">
+    <div class="muted">ค่าใช้จ่ายรวมเดือนนี้</div>
+    <div id="totalAmt" class="big">฿0.00</div>
+    <div id="totalCnt" class="muted"></div>
+  </section>
+
+  <section id="bars" class="card"></section>
+
+  <section class="card">
+    <div class="row between">
+      <h2>รายการ</h2>
+      <div class="row gap">
+        <button class="ghost" id="exportBtn">⬇︎ CSV</button>
+        <button class="ghost" id="addBtn">＋ เพิ่มเอง</button>
+      </div>
+    </div>
+    <ul id="list"></ul>
+    <p id="empty" class="muted center" hidden>ยังไม่มีรายการ กดปุ่ม “สแกนสลิป” ด้านล่างเพื่อเริ่มต้น</p>
+  </section>
+
+  <section class="card">
+    <label class="row between"><span>บันทึกอัตโนมัติเมื่ออ่านจำนวนเงินและวันที่ได้ครบ</span>
+      <input type="checkbox" id="autoSave"></label>
+    <p class="muted small">ข้อมูลและรูปทั้งหมดประมวลผลและเก็บในเครื่องนี้เท่านั้น ไม่ถูกส่งไปเซิร์ฟเวอร์</p>
+  </section>
+</main>
+
+<label class="fab" for="fileInput">📷 สแกนสลิป</label>
+<input id="fileInput" type="file" accept="image/*" multiple hidden>
+
+<div id="progress" class="progress" hidden>
+  <div id="progressText"></div>
+  <div class="track"><div id="progressBar"></div></div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h2 id="dlgTitle">ตรวจสอบรายการ</h2>
+    <img id="thumb" alt="" hidden>
+    <label>จำนวนเงิน (บาท)<input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required></label>
+    <div class="row gap">
+      <label class="grow">วันที่<input name="date" type="date" required></label>
+      <label class="grow">เวลา<input name="time" type="time"></label>
+    </div>
+    <label>ผู้รับ / ร้านค้า<input name="merchant" type="text" maxlength="80"></label>
+    <label>หมวดหมู่<select name="category"></select></label>
+    <label>หมายเหตุ<input name="note" type="text" maxlength="120"></label>
+    <label class="row"><input type="checkbox" name="remember" checked> จำว่าผู้รับนี้อยู่หมวดนี้</label>
+    <details><summary>ข้อความที่อ่านได้</summary><pre id="raw"></pre></details>
+    <div class="row gap actions">
+      <button type="button" class="danger" id="delBtn" hidden>ลบ</button>
+      <button type="button" class="ghost grow" id="skipBtn">ข้าม</button>
+      <button type="submit" class="primary grow" value="save">บันทึก</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="parser.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
