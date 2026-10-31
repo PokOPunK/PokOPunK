@@ -44,6 +44,8 @@
     $('#empty').hidden = items.length > 0;
     $('#autoSave').checked = !!db.settings.auto;
     $('#useAI').checked = !!db.settings.useAI; $('#aiBox').hidden = !db.settings.useAI;
+    $('#passRow').hidden = !proxy; $('#keyRow').hidden = proxy; $('#modelRow').hidden = proxy;
+    if (document.activeElement !== $('#proxyPass')) $('#proxyPass').value = db.settings.proxyPass || '';
     if (document.activeElement !== $('#gemKey')) $('#gemKey').value = db.settings.gemKey || '';
     if (document.activeElement !== $('#gemModel')) $('#gemModel').value = db.settings.gemModel || '';
   }
@@ -146,10 +148,8 @@
   }
 
   // ---------- Gemini ----------
-  const AI_PROMPT = `คุณอ่านสลิปโอนเงิน/จ่ายบิล/ใบเสร็จของไทยจากรูป ตอบเป็น JSON อย่างเดียวตามรูปแบบนี้:
-{"is_slip": true/false, "amount": ตัวเลขจำนวนเงินที่โอน/จ่ายจริง (ไม่รวมค่าธรรมเนียม) หรือ null, "date": "YYYY-MM-DD" แบบ ค.ศ. (ถ้าเป็น พ.ศ. ให้ลบ 543) หรือ null, "time": "HH:MM" หรือ null, "merchant": "ชื่อผู้รับ/ร้านค้า/ผู้ให้บริการ" , "category": หนึ่งใน ${CATEGORIES.map((c) => c.id).join('|')}}
-หมวด: ${CATEGORIES.map((c) => c.id + '=' + c.name).join(', ')}
-ถ้ารูปไม่ใช่สลิปหรือใบเสร็จให้ is_slip=false อย่าเดาค่าที่มองไม่เห็นชัด ให้ใส่ null`;
+  let proxy = false; // true เมื่อเปิดจากเซิร์ฟเวอร์ของเรา (มี /api/read เก็บคีย์ไว้ฝั่งเซิร์ฟเวอร์)
+  const aiReady = () => db.settings.useAI && (proxy ? db.settings.proxyPass : db.settings.gemKey);
   function fromAI(o) {
     const amount = typeof o.amount === 'number' ? o.amount : parseFloat(String(o.amount ?? '').replace(/,/g, ''));
     const merchant = String(o.merchant || '').slice(0, 80);
@@ -178,11 +178,19 @@
   async function geminiCall(dataUrl, model) {
     return fetch(`${GEM}models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': db.settings.gemKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: AI_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } }] }],
+      body: JSON.stringify({ contents: [{ parts: [{ text: SlipParser.AI_PROMPT }, { inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } }] }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0 } })
     });
   }
+  async function proxyRead(dataUrl) {
+    const res = await fetch('api/read', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-slip-pass': db.settings.proxyPass },
+      body: JSON.stringify({ image_b64: dataUrl.split(',')[1], mime: 'image/jpeg' }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`GEMINI ${res.status}: ${j.error || 'เซิร์ฟเวอร์ตอบผิดพลาด'}`);
+    return fromAI(j.slip);
+  }
   async function geminiRead(dataUrl) {
+    if (proxy) return proxyRead(dataUrl);
     let model = db.settings.gemModel || 'gemini-flash-latest';
     let res = await geminiCall(dataUrl, model);
     if (res.status === 404) { // ชื่อโมเดลไม่ถูก/ถูกเลิกใช้ -> หาชื่อที่ใช้ได้เอง แล้วจำไว้
@@ -229,7 +237,7 @@
       for (let n = 0; n < files.length; n++) {
         const label = `สลิป ${n + 1}/${files.length}`;
         try {
-          const useAI = db.settings.useAI && db.settings.gemKey;
+          const useAI = aiReady();
           setProgress(`${label}: กำลังเตรียมรูป…`, 0);
           const { canvas, thumb, colorJpeg } = await prep(files[n], useAI);
           let o;
@@ -269,6 +277,7 @@
   $('#autoSave').onchange = (e) => { db.settings.auto = e.target.checked; persist(); };
   $('#useAI').onchange = (e) => { db.settings.useAI = e.target.checked; persist(); render(); };
   $('#gemKey').onchange = (e) => { db.settings.gemKey = e.target.value.trim(); persist(); };
+  $('#proxyPass').onchange = (e) => { db.settings.proxyPass = e.target.value; persist(); };
   $('#gemModel').onchange = (e) => { db.settings.gemModel = e.target.value.trim(); persist(); };
   $('#addBtn').onclick = async () => {
     const res = await openDialog({ date: ym === today().slice(0, 7) ? today() : ym + '-01', category: 'other' }, { isNew: true, title: 'เพิ่มรายการเอง' });
@@ -292,6 +301,7 @@
   };
 
   render();
+  fetch('api/health').then((r) => r.ok && r.json()).then((j) => { if (j && j.slip) { proxy = true; render(); } }).catch(() => {});
   importFromHash();
   addEventListener('hashchange', importFromHash);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

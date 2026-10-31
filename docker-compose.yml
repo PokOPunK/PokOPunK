@@ -1,0 +1,10 @@
+services:
+  slip-sense:
+    build: .
+    container_name: slip-sense
+    restart: unless-stopped
+    env_file: .env          # GEMINI_API_KEY=...  APP_PASSWORD=...  (ห้าม commit)
+    networks: [penquin_watch_default]
+networks:
+  penquin_watch_default:
+    external: true          # network เดียวกับ Caddy ของ penquin-watch

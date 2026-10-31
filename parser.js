@@ -185,7 +185,11 @@
     return { amount, date, time, merchant, category: categorize(text, merchant) };
   }
 
-  const api = { CATEGORIES, parseSlip, parseAmount, parseDateTime, parseMerchant, categorize, tidy };
+  const AI_PROMPT = `คุณอ่านสลิปโอนเงิน/จ่ายบิล/ใบเสร็จของไทยจากรูป ตอบเป็น JSON อย่างเดียวตามรูปแบบนี้:
+{"is_slip": true/false, "amount": ตัวเลขจำนวนเงินที่โอน/จ่ายจริง (ไม่รวมค่าธรรมเนียม) หรือ null, "date": "YYYY-MM-DD" แบบ ค.ศ. (ถ้าเป็น พ.ศ. ให้ลบ 543) หรือ null, "time": "HH:MM" หรือ null, "merchant": "ชื่อผู้รับ/ร้านค้า/ผู้ให้บริการ" , "category": หนึ่งใน ${CATEGORIES.map((c) => c.id).join('|')}}
+หมวด: ${CATEGORIES.map((c) => c.id + '=' + c.name).join(', ')}
+ถ้ารูปไม่ใช่สลิปหรือใบเสร็จให้ is_slip=false อย่าเดาค่าที่มองไม่เห็นชัด ให้ใส่ null`;
+  const api = { AI_PROMPT, CATEGORIES, parseSlip, parseAmount, parseDateTime, parseMerchant, categorize, tidy };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SlipParser = api;
 })(typeof self !== 'undefined' ? self : this);
