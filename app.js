@@ -121,6 +121,43 @@
   }
 
   let busy = false;
+  // อ่านข้อความสลิป -> แยกข้อมูล -> บันทึกอัตโนมัติ หรือเปิดหน้าตรวจสอบ คืนค่า 'saved' | 'dup' | 'skip'
+  async function processText(text, thumb, title) {
+    const r = parseSlip(text);
+    const learned = r.merchant && db.rules[ruleKey(r.merchant)];
+    const draft = { amount: r.amount, date: r.date, time: r.time, merchant: r.merchant, category: learned || r.category, thumb, raw: text, createdAt: Date.now() };
+    let out;
+    if (db.settings.auto && draft.amount > 0 && draft.date) {
+      if (isDup(draft)) out = 'dup'; else { saveItem({ ...draft, remember: false }); out = 'saved'; }
+    } else {
+      const res = await openDialog(draft, { isNew: true, title });
+      if (res === 'skip') out = 'skip'; else if (isDup(res)) out = 'dup'; else { saveItem(res); out = 'saved'; }
+    }
+    if (out === 'saved' && draft.date) ym = draft.date.slice(0, 7);
+    render();
+    return out;
+  }
+
+  // รับข้อความจาก iOS Shortcuts: index.html#import=<ข้อความที่ URL-encode>  คั่นแต่ละสลิปด้วยบรรทัด ====
+  async function importFromHash() {
+    const m = location.hash.match(/^#import=(.*)$/s);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    let text;
+    try { text = decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch { toast('ข้อความที่ส่งมาอ่านไม่ได้'); return; }
+    const chunks = text.split(/^\s*={3,}\s*$/m).map((c) => c.trim()).filter((c) => /บาท|จำนวน|โอนเงิน|สำเร็จ|ยอด|ชำระ|thb|amount|total|transfer/i.test(c) && /\d/.test(c)); // ข้ามภาพแคปจอที่ไม่ใช่สลิป
+    if (!chunks.length) { toast('ไม่พบสลิปใหม่'); return; }
+    busy = true;
+    let saved = 0, dups = 0, skipped = 0;
+    try {
+      for (let n = 0; n < chunks.length; n++) {
+        const o = await processText(chunks[n], null, `ตรวจสอบสลิป ${n + 1}/${chunks.length}`);
+        if (o === 'saved') saved++; else if (o === 'dup') dups++; else skipped++;
+      }
+    } finally { busy = false; }
+    toast(`นำเข้า ${saved} รายการ` + (dups ? ` · ซ้ำ ${dups}` : '') + (skipped ? ` · ข้าม ${skipped}` : ''));
+  }
+
   async function handleFiles(files) {
     if (busy || !files.length) return;
     busy = true;
@@ -136,18 +173,8 @@
           const w = await getWorker();
           const { data } = await w.recognize(canvas);
           setProgress(null);
-          const r = parseSlip(data.text);
-          const learned = r.merchant && db.rules[ruleKey(r.merchant)];
-          const draft = { amount: r.amount, date: r.date, time: r.time, merchant: r.merchant, category: learned || r.category, thumb, raw: data.text, createdAt: Date.now() };
-          if (db.settings.auto && draft.amount > 0 && draft.date) {
-            if (isDup(draft)) { dups++; continue; }
-            saveItem({ ...draft, remember: false }); saved++;
-          } else {
-            const res = await openDialog(draft, { isNew: true, title: `ตรวจสอบสลิป ${n + 1}/${files.length}` });
-            if (res === 'skip') skipped++; else if (isDup(res)) dups++; else { saveItem(res); saved++; }
-          }
-          if (draft.date) ym = draft.date.slice(0, 7);
-          render();
+          const o = await processText(data.text, thumb, `ตรวจสอบสลิป ${n + 1}/${files.length}`);
+          if (o === 'saved') saved++; else if (o === 'dup') dups++; else skipped++;
         } catch (e) {
           console.error(e); failed++;
           if (/OCR/.test(e.message)) { toast(e.message); break; }
@@ -183,5 +210,6 @@
   };
 
   render();
+  importFromHash();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

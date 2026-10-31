@@ -15,6 +15,9 @@
 
 ทดสอบบนเครื่อง: `python3 -m http.server 8000` แล้วเปิด http://localhost:8000
 
+## อัตโนมัติบน iPhone
+ดู [SHORTCUT.md](SHORTCUT.md) – ตั้ง Shortcuts ให้ส่งสลิปใหม่เข้าแอพเองทุกวัน (ลิงก์รูปแบบ `index.html#import=...`)
+
 ## ทดสอบตัวอ่านข้อความ
 `node test/parser.test.js`
 
